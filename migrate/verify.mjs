@@ -1,6 +1,8 @@
 import {randomInt} from 'node:crypto';
 import {business,directories,years,computed,money,equal} from './plan.mjs';
 
+// merge.mjs reads back the target using the same credential as the import.
+// Verification only receives the plan and the resulting document snapshot.
 export function verify(plan,doc) {
   const report=[], errors=[];
   const item=(kind,detail)=>report.push({kind,detail});

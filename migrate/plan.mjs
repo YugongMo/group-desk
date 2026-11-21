@@ -35,6 +35,7 @@ export function money(t,y,r) {
     default:return null;
   }
 }
+// The REST entry point supplies snapshots. Plans and reports never need credentials.
 export function buildPlan(sources,target) {
   const errors=[], report=[], actions=[], issues=(kind,detail)=>errors.push({kind,detail});
   const note=(kind,detail)=>report.push({kind,detail});

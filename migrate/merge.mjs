@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,chmod,realpath} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {mkdtemp,mkdir,writeFile,chmod,realpath,readFile} from 'node:fs/promises';
+import {homedir,tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {business,directories,managed,years,sourceTable,buildPlan,computed,equal,auditCols} from './plan.mjs';
@@ -8,8 +8,9 @@ import {verify} from './verify.mjs';
 
 const argv=process.argv.slice(2);
 const env=process.env;
-const mode=argv.includes('--run')?'run':'dry-run';
-const validArgs=new Set(['--run','--dry-run','--target','--report-dir',...years.map(y=>'--source-'+y)]);
+const modes=['--check-target','--dry-run','--run'];
+const mode=(modes.find(flag=>argv.includes(flag))||'--dry-run').slice(2);
+const validArgs=new Set([...modes,'--target','--report-dir',...years.map(y=>'--source-'+y)]);
 function arg(k){const i=argv.indexOf(k);if(i===-1)return null; if(!argv[i+1]||argv[i+1].startsWith('--'))throw Error('Missing value for '+k);return argv[i+1];}
 const runId=randomUUID(), entries=[], failures=[];
 const log=(kind,detail)=>entries.push({kind,detail});
@@ -126,15 +127,22 @@ async function reportRows(){
 }
 async function main(){
   if(!outDir)throw Error('Report directory unavailable');
-  for(let i=0;i<argv.length;i++){const k=argv[i];if(!validArgs.has(k))throw Error('Unknown argument');if(!['--run','--dry-run'].includes(k))i++;}
-  if(Number(argv.includes('--run'))+Number(argv.includes('--dry-run'))!==1)throw Error('Specify exactly one of --dry-run or --run');
-  key=env.GRIST_API_KEY;if(!key)throw Error('GRIST_API_KEY is not available in the process environment');
-  sourceIds=Object.fromEntries(years.map(y=>[y,safeId(arg('--source-'+y)||env['GRIST_SOURCE_'+y])]));
+  for(let i=0;i<argv.length;i++){const k=argv[i];if(!validArgs.has(k))throw Error('Unknown argument');if(!modes.includes(k))i++;}
+  if(modes.filter(flag=>argv.includes(flag)).length!==1)throw Error('Specify exactly one of --check-target, --dry-run or --run');
+  key=env.GRIST_API_KEY?.trim();
+  for(const location of ['grist_key.txt','Documents/grist_key.txt']){
+    if(key)break;
+    try{key=(await readFile(path.join(homedir(),location),'utf8')).trim();}
+    catch(error){if(error.code!=='ENOENT')throw Error('Cannot read ~/'+location);}
+  }
+  if(!key || /[\r\n]/.test(key))throw Error('Expected a non-empty single-line Grist credential');
   const targetArg=safeId(arg('--target')||env.GRIST_TARGET);
-  const infos={};
-  for(const y of years)infos[y]=await request(sourceIds[y],'');
   const targetInfo=await request(targetArg,'');
   if(typeof targetInfo.name!=='string' || !targetInfo.name.includes('合并'))throw Error('Target document name does not contain 合并');
+  if(mode==='check-target'){console.log('Target:',targetInfo.name);return;}
+  sourceIds=Object.fromEntries(years.map(y=>[y,safeId(arg('--source-'+y)||env['GRIST_SOURCE_'+y])]));
+  const infos={};
+  for(const y of years)infos[y]=await request(sourceIds[y],'');
   const canonical=info=>safeId(info.id);
   if(new Set([...Object.values(infos).map(canonical),canonical(targetInfo)]).size!==5)throw Error('Document identity collision');
   targetId=canonical(targetInfo);targetName=targetInfo.name;
