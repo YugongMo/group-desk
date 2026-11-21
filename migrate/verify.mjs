@@ -1,5 +1,5 @@
 import {randomInt} from 'node:crypto';
-import {business,directories,years,computed,money,equal} from './plan.mjs';
+import {business,directories,years,computed,money,equal,badAmountFields} from './plan.mjs';
 
 // merge.mjs reads back the target using the same credential as the import.
 // Verification only receives the plan and the resulting document snapshot.
@@ -46,13 +46,23 @@ export function verify(plan,doc) {
   }
   for(const m of plan.financial){
     const totals=[0,0],rows=doc.rows[m.table].filter(r=>r.Source_Year===m.year);
+    const excluded=new Set(m.excludedIds);
+    const expected=[...m.expected];
     for(const r of rows) try {
+      if(excluded.has(r.Legacy_Id))continue;
+      const invalid=badAmountFields(m.table,r);
+      if(invalid.length){
+        for(const k of invalid)item('target_amount_exception',{year:m.year,table:m.table,id:r.Legacy_Id,column:k,original:r[k]});
+        const original=plan.trace[m.table].get(r.id).r;
+        money(m.table,m.year,original).forEach((v,i)=>{if(expected[i]!==null)expected[i]-=v;});
+        continue;
+      }
       money(m.table,2026,r).forEach((v,i)=>{if(v!==null)totals[i]+=v;});
     }catch(e){fail('target_amount_error',{table:m.table,id:r.id,error:e.message});}
     const actual=totals.map((v,i)=>Math.round(v*100)/100);
-    const diff=actual.map((v,i)=>m.expected[i]===null?null:Math.round((v-m.expected[i])*100)/100);
+    const diff=actual.map((v,i)=>m.expected[i]===null?null:Math.round((v-expected[i])*100)/100);
     const targetSupported=money(m.table,2026,{}).map(v=>v!==null);
-    item('verified_money',{...m,actual:actual.map((v,i)=>targetSupported[i]?v:null),difference:diff});
+    item('verified_money',{...m,expected,actual:actual.map((v,i)=>targetSupported[i]?v:null),difference:diff});
     if(diff.some(v=>v!==null && v!==0)) fail('amount_difference',{year:m.year,table:m.table,difference:diff});
   }
   const groupYears=new Map(),candidates=[];

@@ -34,7 +34,11 @@ async function request(id,route,{post,bytes=false}={}){
     let res;
     try{res=await fetch(url,opts);}catch{throw Error('REST transport failed ('+opts.method+' '+route+'). Writes with an unknown result are never retried.');}
     if(post===undefined && [429,502,503,504].includes(res.status) && attempt<3){await res.arrayBuffer();await new Promise(s=>setTimeout(s,Math.min(10000,1000*2**attempt)));continue;}
-    if(!res.ok) throw Error('REST '+opts.method+' '+route+' returned '+res.status);
+    if(!res.ok){
+      const body=await res.json().catch(()=>({}));
+      const reason=String(body.error||body.message||'').replaceAll(key,'[redacted]').slice(0,400);
+      throw Error('REST '+opts.method+' '+route+' returned '+res.status+' '+reason);
+    }
     return bytes?Buffer.from(await res.arrayBuffer()):res.json();
   }
 }
@@ -55,7 +59,7 @@ async function readDoc(id,y,full=false){
     if(c.colId.startsWith('gristHelper_') || c.colId==='manualSort')continue;
     const t=tableById.get(c.parentId);if(t)schema[t][c.colId]=c;
   }
-  const wanted=new Set([...managed.map(t=>sourceTable(y,t)),'Allotment',...(full?['MG_NameMap','MG_Report','Staff']:[])]);
+  const wanted=new Set([...managed.map(t=>sourceTable(y,t)),...(y===2026?['Allotment']:[]),...(full?['MG_NameMap','MG_Report','Staff']:[])]);
   if(full)for(const [t,cs] of Object.entries(schema))for(const c of Object.values(cs)) if(/^Ref(List)?:/.test(c.type)){wanted.add(t);wanted.add(c.type.split(':')[1]);}
   const rows={};
   for(const t of wanted) if(schema[t])rows[t]=await records(id,t);
@@ -126,6 +130,9 @@ async function reportRows(){
   const rs=await records(targetId,'MG_Report');
   let next=Math.max(1,...rs.map(r=>r.id))+1;
   await writeRows('BulkAddRecord','MG_Report',data.map(({kind,detail})=>({id:next++,Run_Id:runId,Section:kind,Detail:JSON.stringify(detail)})));
+  const saved=(await records(targetId,'MG_Report')).filter(r=>r.Run_Id===runId && r.Section!=='lock');
+  if(saved.length!==data.length || saved.some((r,i)=>r.Section!==data[i].kind || r.Detail!==JSON.stringify(data[i].detail)))
+    throw Error('MG_Report read-back differs from the run report');
 }
 async function main(){
   if(!outDir)throw Error('Report directory unavailable');

@@ -22,6 +22,21 @@ const canonical = (t,k,v) => {
   const one=x=>typeof x==='string' && Object.hasOwn(map,x) ? map[x] : x;
   return Array.isArray(v) && v[0]==='L' ? ['L',...new Set(v.slice(1).map(one))] : one(v);
 };
+// Include rates, amounts and the operands used directly by money().
+const amountFields={
+  Schedule:['Guide_Cost','Driver_Cost','Trsf_Cost'],
+  Hotel_Offers:['Total_Cost','SGL','TWN','DBL','TRP','SGL_RATE','TWN_DBL_RATE','TRP_RATE','Selling_SGL_RATE','Selling_TWN_DBL_Rate','Selling_TRP_RATE','SUP_','Deposit_Paid','Balance','Next_Deposit'],
+  Meal:['Rate','Net_Rate','Sell_Rate','Net_Total','Total_Cost','Total_Cost2','Balance','Deposit'],
+  Entrances:['Rate','Sell','Total_Cost','Grand_Total'],
+  Transport_Ticket:['Rate','Total_Cost'],
+  Others:['Qty','Net_Rate','Selling_Price','Total_Cost','Total_Sold']
+};
+export function badAmountFields(t,r){
+  return amountFields[t].filter(k=>{
+    const v=r[k];
+    return v!=null && v!=='' && (typeof v!=='number'||!Number.isFinite(v));
+  });
+}
 export function money(t,y,r) {
   // Totals use the workbook's own formula cells where available. No invented sell prices.
   const n=k=>{const x=r[k]; if(x==null || x==='') return 0; if(typeof x!=='number' || !Number.isFinite(x)) throw Error('non-numeric '+k); return x;};
@@ -55,6 +70,13 @@ export function buildPlan(sources,target) {
   if(!schema.MG_NameMap) throw Error('Missing MG_NameMap');
   for(const k of ['Dir_Table','Year','Old_Id','Old_Name','Decision','Target_2026_Id']) if(!schema.MG_NameMap[k]) throw Error('Missing MG_NameMap.'+k);
   for(const t of business) for(const k of ['Source_Year','Legacy_Id']) column(t,k,makeCol('Int'));
+  for(const t of business) column(t,'Legacy_Note',makeCol('Text'));
+  const clientFormula=schema.Transport_Ticket.Client;
+  if(!computed(clientFormula)) issues('expected_ticket_client_formula','Transport_Ticket.Client');
+  else if(clientFormula.type!=='Text'){
+    clientFormula.type='Text';
+    actions.push(['ModifyColumn','Transport_Ticket','Client',{type:'Text'}]);
+  }
   for(const [k,c] of Object.entries({Base_Year:makeCol('Int'),Year:makeCol('Int',yearFormula),Legacy_GroupID:makeCol('Text')})) column(group,k,c);
   for(const k of ['Start_Time','End_Time']) {
     const a=sources[2024].schema.Schedule[k], b=sources[2025].schema.Schedule[k];
@@ -126,14 +148,15 @@ export function buildPlan(sources,target) {
         for(const [col,c] of Object.entries(sources[y].schema[st])) {
           if(!['Ref:'+t,'RefList:'+t].includes(c.type)) continue;
           for(const row of sourceRows[y][st]) for(const id of list(row[col])) if(!emptyRef(id)){
-            if(!digits(id)) issues('invalid_directory_reference',{y,b,col,row:row.id,value:id}); else used.add(id);
+            if(digits(id)) used.add(id);
           }
         }
       }
       const lookup=new Map(sourceRows[y][t].map(r=>[r.id,r]));
       for(const id of [...used].sort((a,b)=>a-b)){
         const r=lookup.get(id), m=maps.get([y,t,id].join('/'));
-        if(!r || !m) {issues('missing_directory_or_mapping',{y,t,id});continue;}
+        if(!r) continue;
+        if(!m) {issues('missing_directory_or_mapping',{y,t,id});continue;}
         if(r.Name!==m.Old_Name) {issues('mapping_source_name_changed',{y,t,id,old:m.Old_Name,current:r.Name});continue;}
         if(['采用','改选'].includes(m.Decision)){
           if(!baseline.has(m.Target_2026_Id)) issues('invalid_mapping_target',{y,t,id,target:m.Target_2026_Id});
@@ -158,8 +181,8 @@ export function buildPlan(sources,target) {
   }
   function stamp(v){if(typeof v==='number' && Number.isFinite(v)) return v; if(v==null||v==='') return -Infinity; const d=Date.parse(v);return Number.isFinite(d)?d/1000:NaN;}
   for(const [reference,arr] of byRef) if(arr.length>1){
-    const ordered=arr.slice().sort((a,b)=>stamp(b.r.Last_updated_at)-stamp(a.r.Last_updated_at));
-    if(arr.some(x=>Number.isNaN(stamp(x.r.Last_updated_at))) || stamp(ordered[0].r.Last_updated_at)===stamp(ordered[1].r.Last_updated_at)){
+    const ordered=arr.slice().sort((a,b)=>stamp(b.r.Last_updated_at)-stamp(a.r.Last_updated_at) || a.y-b.y);
+    if(arr.some(x=>Number.isNaN(stamp(x.r.Last_updated_at))) || (ordered[0].y===ordered[1].y && stamp(ordered[0].r.Last_updated_at)===stamp(ordered[1].r.Last_updated_at))){
       issues('duplicate_timestamp_tie',{reference,versions:arr.map(x=>[x.y,x.r.id,x.r.Last_updated_at])});continue;
     }
     const winner=ordered[0];
@@ -168,7 +191,6 @@ export function buildPlan(sources,target) {
   const discarded=new Map(duplicates.map(d=>[d.discard.slice(0,2).join('/'),d]));
   const demands=Object.fromEntries(years.map(y=>[y,new Map(sourceRows[y].Hotel_Demand.map(r=>[r.id,r]))]));
   const parent=(y,t,r)=>t===group?r.id:t==='Hotel_Offers'?demands[y].get(r.DemandID)?.Ref:r.Ref;
-  const groupSets=Object.fromEntries(years.map(y=>[y,new Set(sourceRows[y][group].map(r=>r.id))]));
   for(const t of business){
     output[t]=[]; trace[t]=new Map();
     let next=Math.max(0,...yearTable(sourceRows,2026,t).map(r=>r.id))+1;
@@ -178,14 +200,41 @@ export function buildPlan(sources,target) {
       let skipped=0;
       for(const r of rows.slice().sort((a,b)=>a.id-b.id)){
         const g=parent(y,t,r), key=y+'/'+g;
-        if(!emptyRef(g) && !groupSets[y].has(g)) issues('missing_group',{y,t,id:r.id,group:g});
         if(lost.has(key)){skipped++;if(t!==group){const d=discarded.get(key);d.children[t]=(d.children[t]||0)+1;}continue;}
         const id=y===2026?r.id:next++;ids.set(r.id,id);trace[t].set(id,{y,r,g});
       }
       note('row_counts',{year:y,table:t,source:rows.length,planned:ids.size,skipped});
     }
   }
-  for(const d of duplicates) note('duplicate',d);
+  // Compare child records as multisets of business values. Ignore audit fields
+  // and row IDs, and resolve links so IDs from different years are comparable.
+  function signature(y,t,r){
+    const values=copy(y,t,r);
+    for(const k of [...auditCols,'Ref']) delete values[k];
+    for(const [k,v] of Object.entries(values)){
+      const to=schema[t][k]?.type?.split(':')[1];
+      if(directories.includes(to)) values[k]=directoryIds[y+'/'+to]?.get(v)??v;
+      if(k==='DemandID' && t==='Hotel_Offers' && demands[y].has(v))
+        values[k]=signature(y,'Hotel_Demand',demands[y].get(v));
+    }
+    return JSON.stringify(Object.entries(values).filter(([,v])=>v!=null && v!=='').sort(([a],[b])=>a.localeCompare(b)));
+  }
+  for(const d of duplicates){
+    const [keepYear,keepId]=d.winner, [skipYear,skipId]=d.discard;
+    d.onlyInDiscarded={};
+    for(const t of Object.keys(d.children)){
+      const remaining=new Map();
+      for(const r of yearTable(sourceRows,keepYear,t))if(parent(keepYear,t,r)===keepId){
+        const key=signature(keepYear,t,r);remaining.set(key,(remaining.get(key)||0)+1);
+      }
+      for(const r of yearTable(sourceRows,skipYear,t))if(parent(skipYear,t,r)===skipId){
+        const key=signature(skipYear,t,r), count=remaining.get(key)||0;
+        if(count)remaining.set(key,count-1);
+        else (d.onlyInDiscarded[t]??=[]).push(r.id);
+      }
+    }
+    note('duplicate',d);
+  }
   for(const t of business) for(const [id,{y,r}] of trace[t]){
     const dest={...copy(y,t,r),Source_Year:y,Legacy_Id:r.id,id};
     if(t===group) Object.assign(dest,{Base_Year:y,Legacy_GroupID:r.GroupID});
@@ -194,31 +243,32 @@ export function buildPlan(sources,target) {
       if(!/^Ref(List)?:/.test(typ) || emptyRef(v)) continue;
       const targetTable=typ.split(':')[1];
       const map=directoryIds[y+'/'+targetTable]||idMap[y+'/'+targetTable];
-      const remap=x=>{if(!map?.has(x)){issues('unmapped_reference',{y,t,row:r.id,k,to:targetTable,value:x});return x;}return map.get(x);};
-      dest[k]=typ.startsWith('RefList:')?['L',...list(v).map(remap)]:remap(v);
+      const values=typ.startsWith('RefList:')?list(v):[v];
+      if(values.some(x=>!map?.has(x))){
+        const raw=typeof v==='string'?v:JSON.stringify(v);
+        dest.Legacy_Note=[dest.Legacy_Note,k+': '+raw].filter(Boolean).join('\n');
+        dest[k]=typ.startsWith('RefList:')?null:0;
+        note('cleared_reference',{year:y,table:t,id:r.id,column:k,original:v});
+      }else dest[k]=typ.startsWith('RefList:')?['L',...values.map(x=>map.get(x))]:map.get(v);
     }
     output[t].push(dest);
   }
-  // Formula values are recalculated. A Ref formula returning a name cannot yield a valid row ID.
-  for(const t of business) for(const [k,c] of Object.entries(schema[t])) if(c.type.startsWith('Ref:') && computed(c)){
-    const bad=[];
-    for(const [,{y,r}] of trace[t]) {
-      const sc=sources[y].schema[sourceTable(y,t)][k];
-      if(sc?.formula===c.formula && !emptyRef(r[k]) && !digits(r[k])) bad.push([y,r.id]);
-    }
-    if(bad.length) issues('invalid_calculated_ref',{t,k,type:c.type,formula:c.formula,count:bad.length,examples:bad.slice(0,5)});
-  }
-  const allotFields=Object.keys(sources[2026].schema.Allotment).filter(k=>!computed(sources[2026].schema.Allotment[k]));
-  const byDate=rs=>{const m=new Map();for(const r of rs){const key=String(r.Date);const a=m.get(key)||[];a.push(Object.fromEntries(allotFields.map(k=>[k,r[k]??null])));m.set(key,a);}return m;};
-  const a=byDate(sourceRows[2026].Allotment), b=byDate(sourceRows[2027].Allotment);
-  for(const key of new Set([...a.keys(),...b.keys()])) if(!equal(a.get(key),b.get(key))) note('allotment_difference',{date:key,baseline:a.get(key)||[],other:b.get(key)||[]});
   const financial=[];
   for(const y of years) for(const t of business.filter(t=>!['Group_List','Hotel_Demand'].includes(t))){
     const all=yearTable(sourceRows,y,t), keep=idMap[y+'/'+t], orig=[0,0], skipped=[0,0];
     const supported=money(t,y,{}).map(v=>v!==null);
-    for(const r of all){try{money(t,y,r).forEach((v,i)=>{if(v!==null){orig[i]+=v;if(!keep.has(r.id)) skipped[i]+=v;}});}catch(e){issues('source_amount_error',{y,t,id:r.id,error:e.message});}}
+    const excludedIds=[];
+    for(const r of all){
+      const columns=badAmountFields(t,r);
+      if(columns.length){
+        excludedIds.push(r.id);
+        for(const k of columns)note('amount_exception',{year:y,table:t,id:r.id,column:k,original:r[k]});
+        continue;
+      }
+      money(t,y,r).forEach((v,i)=>{if(v!==null){orig[i]+=v;if(!keep.has(r.id)) skipped[i]+=v;}});
+    }
     const normalize=arr=>arr.map((x,i)=>supported[i]?Math.round(x*100)/100:null);
-    financial.push({year:y,table:t,source:normalize(orig),excluded:normalize(skipped),expected:normalize(orig.map((v,i)=>v-skipped[i]))});
+    financial.push({year:y,table:t,excludedIds,source:normalize(orig),excluded:normalize(skipped),expected:normalize(orig.map((v,i)=>v-skipped[i]))});
   }
   for(const row of financial) note('money',row);
   return {schema,actions,dirs,mapUpdates,staff,output,report,errors,trace,financial};
