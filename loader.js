@@ -1,13 +1,14 @@
 'use strict';
 
 const pluginApiUrl = 'https://docs.getgrist.com/grist-plugin-api.js';
-const startup = document.getElementById('startup');
-const flight = document.getElementById('flight');
+const startup = document.getElementById('gd-launch-cover');
+const panel = startup.querySelector('.gd-boot-panel');
 const error = document.getElementById('error');
 let frame;
 let widgetWindow;
 let installedOptions;
 let failed = false;
+let stopWatching;
 
 const deadline = setTimeout(() => {
   fail('加载超时，请重新打开组件。', 'Loading timed out. Reopen the widget.');
@@ -16,12 +17,77 @@ const deadline = setTimeout(() => {
 function fail(chinese, english) {
   failed = true;
   clearTimeout(deadline);
+  stopWatching?.();
   widgetWindow = undefined;
   frame?.remove();
-  startup.hidden = false;
-  flight.hidden = true;
+  document.body.append(startup);
+  panel.hidden = true;
   error.textContent = `${chinese} ${english}`;
   error.hidden = false;
+}
+
+function watchBootCover(child, content) {
+  let pendingFrame;
+  let fallback;
+  let fallbackExpired = false;
+
+  function stop() {
+    observer.disconnect();
+    child.cancelAnimationFrame(pendingFrame);
+    clearTimeout(fallback);
+  }
+
+  function reveal() {
+    stop();
+    clearTimeout(deadline);
+    startup.remove();
+  }
+
+  function check() {
+    const cover = content.getElementById('gd-boot-cover');
+    if (pendingFrame !== undefined || !cover || !child.grist) return;
+
+    // Keep boot's first frame still while the launcher is covering it.
+    const animations = cover.getAnimations({ subtree: true }).filter(
+      animation => animation.animationName === 'gdBootFloat' || animation.animationName === 'gdLoad'
+    );
+    for (const animation of animations) {
+      animation.pause();
+      animation.currentTime = 0;
+    }
+
+    pendingFrame = child.requestAnimationFrame(() => {
+      pendingFrame = child.requestAnimationFrame(() => {
+        pendingFrame = undefined;
+        if (!cover.isConnected) {
+          check();
+          if (fallbackExpired && pendingFrame === undefined) reveal();
+          return;
+        }
+        reveal();
+        for (const animation of animations) animation.play();
+      });
+    });
+  }
+
+  const observer = new MutationObserver(check);
+  if (startup.isConnected) observer.observe(content, { childList: true, subtree: true });
+  stopWatching = stop;
+
+  content.addEventListener('DOMContentLoaded', () => {
+    if (child !== widgetWindow) return;
+    if (!child.grist) {
+      fail('无法加载 Grist 接口。', 'Could not load the Grist API.');
+      return;
+    }
+    clearTimeout(deadline);
+    if (!startup.isConnected) return;
+    check();
+    fallback = setTimeout(() => {
+      fallbackExpired = true;
+      if (pendingFrame === undefined) reveal();
+    }, 3_000);
+  }, { once: true });
 }
 
 function render(options) {
@@ -37,6 +103,7 @@ function render(options) {
   if (html === installedOptions?.html && code === installedOptions?.code) return;
   installedOptions = { html, code };
 
+  stopWatching?.();
   frame?.remove();
   frame = document.createElement('iframe');
   frame.id = 'widget';
@@ -49,15 +116,7 @@ function render(options) {
     const child = widgetWindow;
     const content = child.document;
     content.open();
-    content.addEventListener('DOMContentLoaded', () => {
-      if (child !== widgetWindow) return;
-      if (!child.grist) {
-        fail('无法加载 Grist 接口。', 'Could not load the Grist API.');
-        return;
-      }
-      clearTimeout(deadline);
-      startup.hidden = true;
-    }, { once: true });
+    watchBootCover(child, content);
 
     content.write(html);
     if (!html.includes('grist-plugin-api.js')) {
