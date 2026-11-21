@@ -1,4 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {mkdtemp,mkdir,writeFile,chmod,realpath,readFile} from 'node:fs/promises';
 import {homedir,tmpdir} from 'node:os';
 import path from 'node:path';
@@ -132,7 +134,14 @@ async function main(){
   key=env.GRIST_API_KEY?.trim();
   for(const location of ['grist_key.txt','Documents/grist_key.txt']){
     if(key)break;
-    try{key=(await readFile(path.join(homedir(),location),'utf8')).trim();}
+    const filename=path.join(homedir(),location);
+    try{
+      const raw=await readFile(filename,'utf8');
+      if(raw.startsWith('{\\rtf') && process.platform==='darwin'){
+        const result=await promisify(execFile)('/usr/bin/textutil',['-format','rtf','-convert','txt','-stdout',filename],{encoding:'utf8'});
+        key=result.stdout.trim();
+      }else key=raw.trim();
+    }
     catch(error){if(error.code!=='ENOENT')throw Error('Cannot read ~/'+location);}
   }
   if(!key || /[\r\n]/.test(key))throw Error('Expected a non-empty single-line Grist credential');
