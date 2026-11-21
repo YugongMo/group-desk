@@ -5,63 +5,108 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Group Desk</title>
   <style>
+    :root {
+      --tx: var(--grist-theme-text, #262633);
+      --bg: var(--grist-theme-widget-bg, #fff);
+      --g: var(--grist-theme-control-primary-bg, #16b378);
+      --gfg: var(--grist-theme-control-primary-fg, #fff);
+    }
+    html, body { background: var(--bg); }
     body {
       margin: 0;
-      background: white;
-      color: #294766;
-      font: 14px system-ui, sans-serif;
+      font: 12.5px/1.4 var(--grist-theme-font-family, Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
     }
-    #widget, #startup {
+    #widget { position: fixed; inset: 0; border: 0; width: 100%; height: 100%; }
+    #gd-launch-cover {
       position: fixed;
       inset: 0;
-    }
-    #widget { width: 100%; height: 100%; border: 0; }
-    #startup {
+      z-index: 2147483647;
       display: grid;
       place-items: center;
-      background: white;
+      padding: 24px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--tx);
+      --gd-boot-ink: var(--tx);
+      --gd-boot-accent: color-mix(in srgb, var(--g) 82%, var(--gd-boot-ink));
+    }
+    #gd-launch-cover .gd-boot-panel {
+      display: grid;
+      justify-items: center;
+      gap: 18px;
+      width: min(320px, 100%);
       text-align: center;
     }
-    #startup[hidden], [hidden] { display: none; }
-    #flight { width: min(250px, 78vw); }
-    #route { position: relative; height: 44px; }
-    #route::before {
-      content: "";
-      position: absolute;
-      inset: 50% 0 auto;
-      border-top: 2px dashed #abc0d6;
+    #gd-launch-cover .gd-boot-panel[hidden] { display: none; }
+    #gd-launch-cover .ttl {
+      font: inherit;
+      font-size: 20px;
+      font-weight: 650;
+      letter-spacing: -.01em;
+      display: flex;
+      align-items: center;
+      gap: 9px;
     }
-    #plane {
+    #gd-launch-cover .ttl i {
+      display: inline-grid;
+      place-items: center;
+      width: 29px;
+      height: 29px;
+      border-radius: 9px;
+      background: var(--g);
+      color: var(--gfg);
+      font-style: normal;
+      font-size: 15px;
+    }
+    #gd-launch-cover .gd-boot-route { position: relative; width: 100%; height: 18px; --gd-boot-progress: 0%; }
+    #gd-launch-cover .gd-boot-dots {
       position: absolute;
+      inset-inline: 0;
       top: 50%;
-      left: 0;
-      line-height: 1;
-      font-size: 25px;
-      transform: translateY(-50%) rotate(16deg);
-      animation: fly 2.4s ease-in-out infinite;
+      transform: translateY(-50%);
+      display: flex;
+      justify-content: space-between;
+      gap: 2px;
     }
-    #loading { display: flex; justify-content: center; gap: .18em; font-weight: 650; }
-    #loading span { animation: wave 1.2s ease-in-out infinite; }
-    #loading span:nth-child(2) { animation-delay: .09s; }
-    #loading span:nth-child(3) { animation-delay: .18s; }
-    #loading span:nth-child(4) { animation-delay: .27s; }
-    #loading span:nth-child(5) { animation-delay: .36s; }
-    #loading span:nth-child(6) { animation-delay: .45s; }
-    #loading span:nth-child(7) { animation-delay: .54s; }
-    #error { padding: 0 1rem; }
-    @keyframes fly { 0% { left: 0; } 100% { left: calc(100% - 25px); } }
-    @keyframes wave { 0%, 60%, 100% { transform: scale(1); } 30% { transform: scale(1.25); } }
-    @media (prefers-reduced-motion: reduce) {
-      #plane, #loading span { animation: none; }
+    #gd-launch-cover .gd-boot-dots span { flex: none; width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+    #gd-launch-cover .gd-boot-trail { opacity: .10; }
+    #gd-launch-cover .gd-boot-ahead {
+      opacity: .32;
+      mask-image: linear-gradient(to right, transparent calc(var(--gd-boot-progress) - 14px), #000 var(--gd-boot-progress));
     }
+    #gd-launch-cover .gd-boot-marker {
+      position: absolute;
+      left: var(--gd-boot-progress);
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--gd-boot-accent);
+    }
+    #gd-launch-cover .gd-boot-plane { display: block; }
+    #gd-launch-cover .gd-boot-plane svg { display: block; width: 22px; height: 18px; fill: currentColor; transform: translateY(-1px); }
+    #gd-launch-cover .gd-boot-loading { font-size: 13px; font-weight: 650; letter-spacing: .3em; padding-inline-start: .3em; }
+    #gd-launch-cover .gd-boot-loading span {
+      display: inline-block;
+      margin: 0 -.075em;
+      color: var(--gd-boot-ink);
+      transform: scale(1);
+      will-change: transform;
+    }
+    #error { text-align: center; }
   </style>
   <script defer src="loader.js"></script>
 </head>
 <body>
-  <div id="startup">
-    <div id="flight" role="status" aria-label="Loading Group Desk">
-      <div id="route" aria-hidden="true"><span id="plane">✈︎</span></div>
-      <div id="loading" aria-hidden="true"><span>L</span><span>O</span><span>A</span><span>D</span><span>I</span><span>N</span><span>G</span></div>
+  <div id="gd-launch-cover">
+    <div class="gd-boot-panel" role="status" aria-label="Loading Group Desk">
+      <div><span class="ttl"><i>G</i>Group Desk</span></div>
+      <div class="gd-boot-route" aria-hidden="true">
+        <div class="gd-boot-dots gd-boot-trail"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="gd-boot-dots gd-boot-ahead"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <span class="gd-boot-marker"><span class="gd-boot-plane"><svg viewBox="0 0 24 20"><path d="M21.4 8.45H15.1L9.55 2.7H7.1l3.4 5.75H4.85L2.7 6H.9l1.45 4L.9 14h1.8l2.15-2.45h5.65L7.1 17.3h2.45l5.55-5.75h6.3a1.55 1.55 0 0 0 0-3.1Z"/></svg></span></span>
+      </div>
+      <div class="gd-boot-loading" aria-hidden="true"><span>L</span><span>O</span><span>A</span><span>D</span><span>I</span><span>N</span><span>G</span></div>
     </div>
     <p id="error" role="alert" hidden></p>
     <noscript>Group Desk 需要 JavaScript。Group Desk requires JavaScript.</noscript>
