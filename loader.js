@@ -107,7 +107,7 @@ function render(options) {
   frame?.remove();
   frame = document.createElement('iframe');
   frame.id = 'widget';
-  frame.title = 'Group Desk';
+  frame.title = document.title;
   document.body.prepend(frame);
   widgetWindow = frame.contentWindow;
 
