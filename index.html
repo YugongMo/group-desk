@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Group Desk</title>
   <script>
-    if (new URLSearchParams(location.search).get('app') === 'bo') {
-      document.documentElement.dataset.app = 'bo';
-      document.title = 'Back Office';
+    if (new URLSearchParams(location.search).get('app') === 'console') {
+      document.documentElement.dataset.app = 'console';
+      document.title = 'Console';
     }
   </script>
   <style>
-    html[data-app="bo"] .gd-brand,
-    html:not([data-app="bo"]) .bo-brand { display: none; }
+    html[data-app="console"] .gd-brand,
+    html:not([data-app="console"]) .console-brand { display: none; }
     :root {
       --tx: var(--grist-theme-text, #262633);
       --bg: var(--grist-theme-widget-bg, #fff);
@@ -108,7 +108,7 @@
 <body>
   <div id="gd-launch-cover">
     <div class="gd-boot-panel" role="status" aria-labelledby="launch-title">
-      <div id="launch-title"><span class="gd-brand"><span class="ttl"><i>G</i>Group Desk</span></span><span class="bo-brand"><span class="ttl"><i>B</i>Back Office</span></span></div>
+      <div id="launch-title"><span class="gd-brand"><span class="ttl"><i>G</i>Group Desk</span></span><span class="console-brand"><span class="ttl"><i>C</i>Console</span></span></div>
       <div class="gd-boot-route" aria-hidden="true">
         <div class="gd-boot-dots gd-boot-trail"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
         <div class="gd-boot-dots gd-boot-ahead"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
