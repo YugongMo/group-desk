@@ -4,6 +4,7 @@ const pluginApiUrl = 'https://docs.getgrist.com/grist-plugin-api.js';
 const startup = document.getElementById('gd-launch-cover');
 const panel = startup.querySelector('.gd-boot-panel');
 const error = document.getElementById('error');
+const consoleMode = document.documentElement.dataset.app === 'console';
 let frame;
 let widgetWindow;
 let installedOptions;
@@ -22,7 +23,7 @@ function fail(chinese, english) {
   frame?.remove();
   document.body.append(startup);
   panel.hidden = true;
-  if (document.documentElement.dataset.app === 'bo') {
+  if (document.documentElement.dataset.app === 'console') {
     const language = new URLSearchParams(location.search).get('language') || navigator.language;
     error.textContent = language.toLowerCase().startsWith('zh') ? chinese : english;
   } else {
@@ -45,6 +46,7 @@ function watchBootCover(child, content) {
   function reveal() {
     stop();
     clearTimeout(deadline);
+    if (consoleMode) frame.style.visibility = 'visible';
     startup.remove();
   }
 
@@ -90,7 +92,8 @@ function watchBootCover(child, content) {
     check();
     fallback = setTimeout(() => {
       fallbackExpired = true;
-      if (pendingFrame === undefined) reveal();
+      if (pendingFrame === undefined && !consoleMode) reveal();
+      if (consoleMode && !content.getElementById('gd-boot-cover') && startup.isConnected) fail('启动画面未就绪。', 'Startup screen is unavailable.');
     }, 3_000);
   }, { once: true });
 }
@@ -112,6 +115,10 @@ function render(options) {
   frame?.remove();
   frame = document.createElement('iframe');
   frame.id = 'widget';
+  if (consoleMode) {
+    frame.style.visibility = 'hidden';
+    if (!startup.isConnected) document.body.append(startup);
+  }
   frame.title = document.title;
   document.body.prepend(frame);
   widgetWindow = frame.contentWindow;
