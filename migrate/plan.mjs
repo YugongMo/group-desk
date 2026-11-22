@@ -268,7 +268,13 @@ export function buildPlan(sources,target) {
       money(t,y,r).forEach((v,i)=>{if(v!==null){orig[i]+=v;if(!keep.has(r.id)) skipped[i]+=v;}});
     }
     const normalize=arr=>arr.map((x,i)=>supported[i]?Math.round(x*100)/100:null);
-    financial.push({year:y,table:t,excludedIds,source:normalize(orig),excluded:normalize(skipped),expected:normalize(orig.map((v,i)=>v-skipped[i]))});
+    const formulaChanges=[];
+    for(const [k,sc] of Object.entries(sources[y].schema[sourceTable(y,t)])){
+      const tc=schema[t][k];
+      if(amountFields[t].includes(k) && computed(sc) && computed(tc) && sc.formula!==tc.formula)
+        formulaChanges.push({column:k,source:sc.formula,target:tc.formula});
+    }
+    financial.push({year:y,table:t,formulaChanges,excludedIds,source:normalize(orig),excluded:normalize(skipped),expected:normalize(orig.map((v,i)=>v-skipped[i]))});
   }
   for(const row of financial) note('money',row);
   return {schema,actions,dirs,mapUpdates,staff,output,report,errors,trace,financial};
