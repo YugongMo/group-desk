@@ -22,7 +22,12 @@ function fail(chinese, english) {
   frame?.remove();
   document.body.append(startup);
   panel.hidden = true;
-  error.textContent = `${chinese} ${english}`;
+  if (document.documentElement.dataset.app === 'bo') {
+    const language = new URLSearchParams(location.search).get('language') || navigator.language;
+    error.textContent = language.toLowerCase().startsWith('zh') ? chinese : english;
+  } else {
+    error.textContent = `${chinese} ${english}`;
+  }
   error.hidden = false;
 }
 
@@ -107,7 +112,7 @@ function render(options) {
   frame?.remove();
   frame = document.createElement('iframe');
   frame.id = 'widget';
-  frame.title = 'Group Desk';
+  frame.title = document.title;
   document.body.prepend(frame);
   widgetWindow = frame.contentWindow;
 
