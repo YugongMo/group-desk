@@ -22,7 +22,12 @@ function fail(chinese, english) {
   frame?.remove();
   document.body.append(startup);
   panel.hidden = true;
-  error.textContent = `${chinese} ${english}`;
+  if (document.documentElement.dataset.app === 'bo') {
+    const language = new URLSearchParams(location.search).get('language') || navigator.language;
+    error.textContent = language.toLowerCase().startsWith('zh') ? chinese : english;
+  } else {
+    error.textContent = `${chinese} ${english}`;
+  }
   error.hidden = false;
 }
 
